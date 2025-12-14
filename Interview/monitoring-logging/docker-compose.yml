@@ -90,7 +90,7 @@ services:
       dockerfile: Dockerfile
     container_name: basic-exporter
     ports:
-      - "8080:8080"
+      - "8000:8000"
     restart: unless-stopped
     networks:
       - monitoring
