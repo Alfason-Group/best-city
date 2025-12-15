@@ -1,5 +1,9 @@
+version: "3.9"
 
 services:
+  # -------------------------------------------------
+  # Fluentd (central log collector)
+  # -------------------------------------------------
   fluentd:
     build:
       context: ./fluentd
@@ -11,12 +15,17 @@ services:
     environment:
       - FLUENTD_CONF=fluent.conf
     volumes:
-      - ./fluentd/fluent.conf:/fluentd/etc/fluent.conf
+      - ./fluentd/fluent.conf:/fluentd/etc/fluent.conf:ro
       - fluentd-buffer:/fluentd/buffer
     restart: unless-stopped
     networks:
       - monitoring
+    logging:
+      driver: json-file   # IMPORTANT: Fluentd must not log to itself
 
+  # -------------------------------------------------
+  # Loki
+  # -------------------------------------------------
   loki:
     image: grafana/loki:3.4.1
     container_name: loki
@@ -24,19 +33,25 @@ services:
       - "3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
-      - ./loki/loki-config.yaml:/etc/loki/local-config.yaml
+      - ./loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
     restart: unless-stopped
     networks:
       - monitoring
     logging:
-      driver: "json-file"
+      driver: fluentd
+      options:
+        fluentd-address: 127.0.0.1:24224
+        fluentd-async-connect: "true"
+        tag: docker.loki
 
+  # -------------------------------------------------
+  # Grafana
+  # -------------------------------------------------
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
     ports:
       - "3000:3000"
-    restart: unless-stopped
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
@@ -45,11 +60,19 @@ services:
       - GF_DATASOURCES__LOKI__IS_DEFAULT=true
       - GF_DATASOURCES__LOKI__TYPE=loki
       - GF_DATASOURCES__LOKI__NAME=Loki
+    restart: unless-stopped
     networks:
       - monitoring
     logging:
-      driver: "json-file"
+      driver: fluentd
+      options:
+        fluentd-address: 127.0.0.1:24224
+        fluentd-async-connect: "true"
+        tag: docker.grafana
 
+  # -------------------------------------------------
+  # Prometheus
+  # -------------------------------------------------
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -63,14 +86,20 @@ services:
     networks:
       - monitoring
     logging:
-      driver: "json-file"
+      driver: fluentd
+      options:
+        fluentd-address: 127.0.0.1:24224
+        fluentd-async-connect: "true"
+        tag: docker.prometheus
 
+  # -------------------------------------------------
+  # Node Exporter
+  # -------------------------------------------------
   node-exporter:
     image: prom/node-exporter:latest
     container_name: node-exporter
     ports:
       - "9100:9100"
-    restart: unless-stopped
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
@@ -79,11 +108,19 @@ services:
       - "--path.procfs=/host/proc"
       - "--path.rootfs=/rootfs"
       - "--path.sysfs=/host/sys"
+    restart: unless-stopped
     networks:
       - monitoring
     logging:
-      driver: "json-file"
+      driver: fluentd
+      options:
+        fluentd-address: 127.0.0.1:24224
+        fluentd-async-connect: "true"
+        tag: docker.node-exporter
 
+  # -------------------------------------------------
+  # Basic Exporter
+  # -------------------------------------------------
   basic-exporter:
     build:
       context: ./basic-exporter
@@ -91,16 +128,26 @@ services:
     container_name: basic-exporter
     ports:
       - "8000:8000"
+    command: python exporter.py
     restart: unless-stopped
     networks:
       - monitoring
-    command: python exporter.py
     logging:
-      driver: "json-file"
+      driver: fluentd
+      options:
+        fluentd-address: 127.0.0.1:24224
+        fluentd-async-connect: "true"
+        tag: docker.basic-exporter
 
+# -------------------------------------------------
+# Volumes
+# -------------------------------------------------
 volumes:
   fluentd-buffer:
 
+# -------------------------------------------------
+# Networks
+# -------------------------------------------------
 networks:
   monitoring:
     driver: bridge
